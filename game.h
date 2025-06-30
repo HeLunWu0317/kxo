@@ -1,6 +1,6 @@
 #pragma once
 
-#define BOARD_SIZE 4
+#define BOARD_SIZE 3
 #define GOAL 3
 #define ALLOW_EXCEED 1
 #define N_GRIDS (BOARD_SIZE * BOARD_SIZE)
