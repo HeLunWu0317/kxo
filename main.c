@@ -168,7 +168,7 @@ static inline u32 board_to_mask(const char *table, char turn) {
     unsigned int v = (table[i] == 'X') ? 1 : (table[i] == 'O') ? 2 : 0;
     m |= v << (i * 2);
   }
-  m |= (turn == 'O') << 18; /* bit-18: 輪到誰，選用 */
+  m |= (turn == 'O') << 18; /* bit-18: whose round*/
   return m;
 }
 
@@ -223,7 +223,7 @@ static void end_game_record(char win)
                           win == 'X' ? "X win" :
                           win == 'O' ? "O win" : "D");
 
-    /* 把整局文字送進同一條 kfifo（顯示通道） */
+    /* 把整局文字送進 kfifo */
     mutex_lock(&consumer_lock);
     kfifo_in(&rx_fifo,
              (const unsigned char *)game_history[current_game],
