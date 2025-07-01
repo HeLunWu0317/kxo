@@ -44,6 +44,28 @@ struct kxo_attr {
   rwlock_t lock;
 };
 
+/* 一局最多輸出 512 字元；最多保留 128 局（環狀覆寫） */
+#define MAX_MOVES_LEN 512
+#define MAX_GAMES     128
+
+static char game_history[MAX_GAMES][MAX_MOVES_LEN];
+static int  current_game = 0;   /* 本局 index */
+static int  move_pos     = 0;   /* 本局已寫入長度 */
+
+static void record_move(int pos, char turn)
+{
+    static const char cols[] = "ABC";           
+    int row = pos / BOARD_SIZE;                    
+    int col = pos % BOARD_SIZE;
+
+    move_pos += scnprintf(game_history[current_game] + move_pos,
+                          MAX_MOVES_LEN - move_pos,
+                          "%c%d -> ", cols[col], row + 1);
+}
+
+
+
+
 static struct kxo_attr attr_obj;
 
 static ssize_t kxo_state_show(struct device *dev, struct device_attribute *attr,
@@ -189,6 +211,30 @@ static void drawboard_work_func(struct work_struct *w) {
   wake_up_interruptible(&rx_wait);
 }
 
+static void end_game_record(char win)
+/* win = 'X' | 'O' | 'D' (draw) */
+{
+    if (move_pos >= 4)              /* 去掉最後 " -> " */
+        move_pos -= 4;
+
+    move_pos += scnprintf(game_history[current_game] + move_pos,
+                          MAX_MOVES_LEN - move_pos,
+                          " [%s]\n",
+                          win == 'X' ? "X win" :
+                          win == 'O' ? "O win" : "D");
+
+    /* 把整局文字送進同一條 kfifo（顯示通道） */
+    mutex_lock(&consumer_lock);
+    kfifo_in(&rx_fifo,
+             (const unsigned char *)game_history[current_game],
+             move_pos);
+    mutex_unlock(&consumer_lock);
+
+    /* 準備下一局 */
+    current_game = (current_game + 1) % MAX_GAMES;
+    move_pos = 0;
+}
+
 static int finish;
 
 static void ai_one_work_func(struct work_struct *w) {
@@ -211,6 +257,7 @@ static void ai_one_work_func(struct work_struct *w) {
 
   if (move != -1) WRITE_ONCE(table[move], 'O');
 
+  record_move(move, 'O');
   WRITE_ONCE(turn, 'X');
   WRITE_ONCE(finish, 1);
   smp_wmb();
@@ -243,6 +290,7 @@ static void ai_two_work_func(struct work_struct *w) {
 
   if (move != -1) WRITE_ONCE(table[move], 'X');
 
+  record_move(move, 'X');
   WRITE_ONCE(turn, 'O');
   WRITE_ONCE(finish, 1);
   smp_wmb();
@@ -334,6 +382,7 @@ static void timer_handler(struct timer_list *__timer) {
     ai_game();
     mod_timer(&timer, jiffies + msecs_to_jiffies(delay));
   } else {
+    end_game_record(win);
     read_lock(&attr_obj.lock);
     if (attr_obj.display == '1') {
       int cpu = get_cpu();
@@ -350,6 +399,7 @@ static void timer_handler(struct timer_list *__timer) {
       mutex_unlock(&consumer_lock);
 
       wake_up_interruptible(&rx_wait);
+      
     }
 
     if (attr_obj.end == '0') {

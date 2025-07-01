@@ -127,10 +127,12 @@ int main(int argc, char *argv[]) {
       FD_CLR(STDIN_FILENO, &readset);
       listen_keyboard_handler();
     } else if (FD_ISSET(device_fd, &readset)) {
-      uint32_t frame;
-      ssize_t got = read(device_fd, &frame, sizeof(frame));
+      uint8_t buf[1024];
+      ssize_t got = read(device_fd, &buf, sizeof(buf));
 
-      if (got == sizeof(frame)) {
+      if (got == 4) {
+        uint32_t frame = le32toh(*(uint32_t *)buf);
+
         /* time set */
         time_t now = time(NULL);
         struct tm tm_info;
@@ -146,10 +148,16 @@ int main(int argc, char *argv[]) {
         render_board(frame);
 
         fflush(stdout);
-      } else if (got == 0) {
+      } 
+      else if (got > 0) {                       /* ② 任意長度 → 紀錄文字 */
+        fwrite(buf, 1, got, stdout);       /* 直接印出 */
+        fflush(stdout);                        /* 立即顯示 */
+      }
+      else if (got == 0) {
         /* ctrl-Q 離開迴圈 */
         break;
-      } else {
+      } 
+      else {
         /* read被打斷 */
       }
     }
